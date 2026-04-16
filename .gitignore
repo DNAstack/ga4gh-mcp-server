@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.venv/
+venv/
+config/server.yaml
+config/api-keys.yaml
+.env
+*.DS_Store

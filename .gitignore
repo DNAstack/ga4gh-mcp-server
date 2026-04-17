@@ -10,4 +10,6 @@ venv/
 config/server.yaml
 config/api-keys.yaml
 .env
-*.DS_Store
+.DS_Store
+
+**/.DS_Store

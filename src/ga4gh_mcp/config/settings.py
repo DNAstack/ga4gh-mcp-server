@@ -63,10 +63,13 @@ def load_settings(config_dir: str | Path | None = None) -> Settings:
 
     api_keys = [ApiKeyEntry(**k) for k in keys_data.get("keys", [])]
 
-    # GA4GH_MCP_API_KEY_HASH lets deployments inject a key hash via secret
-    # without mounting config files. Generate with: ga4gh-mcp generate-key
-    if env_hash := os.environ.get("GA4GH_MCP_API_KEY_HASH"):
-        api_keys.append(ApiKeyEntry(user_id="env", key_hash=env_hash, description="injected via GA4GH_MCP_API_KEY_HASH"))
+    # GA4GH_MCP_API_KEY_HASH accepts one or more comma-separated hashes.
+    # Generate with: ga4gh-mcp generate-key
+    if env_hashes := os.environ.get("GA4GH_MCP_API_KEY_HASH"):
+        for i, h in enumerate(env_hashes.split(",")):
+            h = h.strip()
+            if h:
+                api_keys.append(ApiKeyEntry(user_id=f"env-{i}", key_hash=h, description="injected via GA4GH_MCP_API_KEY_HASH"))
 
     return Settings(
         server=ServerConfig(**server_block),

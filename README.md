@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that exposes the [GA4GH](https://www.ga4gh.org) ecosystem to AI clients such as Claude Desktop and Claude Code.
 
-**Live endpoint:** `https://ga4gh-mcp.fly.dev/mcp/`
+**Live endpoint:** `https://ga4gh-mcp-662019113068.us-central1.run.app/mcp/`
 
 ## Tools (57 total)
 
@@ -21,7 +21,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes the [GA4GH](https:
 
 ## Connect via the Hosted Instance
 
-The hosted instance at `https://ga4gh-mcp.fly.dev` requires an API key. Contact the maintainers to request one, or [self-host](#self-hosting) and generate your own.
+The hosted instance requires an API key. Contact the maintainers to request one, or [self-host](#self-hosting) and generate your own.
 
 ### Claude Desktop
 
@@ -32,7 +32,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   "mcpServers": {
     "ga4gh": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://ga4gh-mcp.fly.dev/mcp/"],
+      "args": ["-y", "mcp-remote", "https://ga4gh-mcp-662019113068.us-central1.run.app/mcp/"],
       "env": {
         "MCP_REMOTE_HEADER_AUTHORIZATION": "Bearer YOUR_API_KEY"
       }
@@ -46,7 +46,7 @@ Restart Claude Desktop after saving.
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add --transport http ga4gh https://ga4gh-mcp.fly.dev/mcp/ \
+claude mcp add --transport http ga4gh https://ga4gh-mcp-662019113068.us-central1.run.app/mcp/ \
   --header "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -58,30 +58,26 @@ claude mcp list
 
 ### Other MCP Clients
 
-Use transport `streamable-http`, URL `https://ga4gh-mcp.fly.dev/mcp/`, and pass the API key as `Authorization: Bearer YOUR_API_KEY`.
+Use transport `streamable-http`, URL `https://ga4gh-mcp-662019113068.us-central1.run.app/mcp/`, and pass the API key as `Authorization: Bearer YOUR_API_KEY`.
 
 ---
 
 ## Self-Hosting
 
-### Option 1 — Fly.io (free tier)
+### Option 1 — Google Cloud Run (generous free tier)
 
-**1. Clone and install Fly CLI**
+Requires a Google Cloud project with billing enabled (2M requests/month and 360K GB-seconds free).
+
+**1. Clone and install gcloud CLI**
 
 ```bash
 git clone https://github.com/DNAstack/ga4gh-mcp-server.git
 cd ga4gh-mcp-server
-brew install flyctl   # or: curl -L https://fly.io/install.sh | sh
-fly auth login
+# Install gcloud: https://cloud.google.com/sdk/docs/install
+gcloud auth login
 ```
 
-**2. Create your app**
-
-```bash
-fly launch --no-deploy   # accept defaults, note your app name
-```
-
-**3. Generate an API key**
+**2. Generate an API key**
 
 ```bash
 uv run ga4gh-mcp generate-key --user admin --description "my key"
@@ -89,22 +85,28 @@ uv run ga4gh-mcp generate-key --user admin --description "my key"
 
 Copy the `key_hash` value from the output.
 
-**4. Set the secret and deploy**
+**3. Deploy**
 
 ```bash
-fly secrets set GA4GH_MCP_API_KEY_HASH="sha256:<your_hash>"
-fly deploy
+gcloud run deploy ga4gh-mcp \
+  --source . \
+  --project YOUR_PROJECT_ID \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars "GA4GH_MCP_API_KEY_HASH=sha256:<your_hash>,GA4GH_MCP_HOST=0.0.0.0,GA4GH_MCP_PORT=8080,GA4GH_MCP_TRANSPORT=streamable-http" \
+  --port 8080
 ```
 
-**5. Verify**
+**4. Verify**
 
 ```bash
-curl https://<your-app>.fly.dev/health
+curl https://<your-service-url>/health
 ```
 
 Expected: `{"status":"ok","tools":57}`
 
-**6. Connect Claude Desktop or Claude Code** using your app URL and raw API key (the `gam_...` string, not the hash).
+**5. Connect Claude Desktop or Claude Code** using your service URL and raw API key (the `gam_...` string, not the hash).
 
 ### Option 2 — Docker (local or any cloud)
 

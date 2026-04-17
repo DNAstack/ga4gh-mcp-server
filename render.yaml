@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ga4gh-mcp
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: GA4GH_MCP_TRANSPORT
+        value: streamable-http
+      - key: GA4GH_MCP_HOST
+        value: 0.0.0.0
+      - key: GA4GH_MCP_PORT
+        value: "8080"
+      - key: GA4GH_MCP_API_KEY_HASH
+        sync: false  # set manually in Render dashboard
+    healthCheckPath: /health

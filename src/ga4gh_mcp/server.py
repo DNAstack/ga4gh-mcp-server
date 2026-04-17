@@ -1,10 +1,12 @@
-"""MCP server setup — stdio transport."""
+"""MCP server setup — stdio, streamable-http, and sse transports."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
+from collections.abc import AsyncIterator
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -79,8 +81,80 @@ def _register_tools(server: Server, settings: Settings) -> None:
             return [TextContent(type="text", text=json.dumps(error))]
 
 
+def _build_starlette_app(server: Server, settings: Settings) -> "Starlette":
+    """Build a Starlette ASGI app for streamable-http or sse transport."""
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, Response
+    from starlette.routing import Mount, Route
+
+    transport = settings.server.transport
+
+    if transport == "streamable-http":
+        session_manager = StreamableHTTPSessionManager(
+            app=server,
+            stateless=True,  # stateless — auth handled at the tool layer
+        )
+
+        @contextlib.asynccontextmanager
+        async def lifespan(app: Starlette) -> AsyncIterator[None]:
+            async with session_manager.run():
+                yield
+
+        async def handle_mcp(scope, receive, send) -> None:
+            # Optional API key check
+            if settings.api_keys:
+                request = Request(scope, receive)
+                auth_header = request.headers.get("authorization", "")
+                raw_key = auth_header.removeprefix("Bearer ").strip()
+                validator = ApiKeyValidator([k.model_dump() for k in settings.api_keys])
+                if not validator.validate(raw_key):
+                    response = Response("Unauthorized", status_code=401)
+                    await response(scope, receive, send)
+                    return
+            await session_manager.handle_request(scope, receive, send)
+
+        async def healthz(request: Request) -> JSONResponse:
+            return JSONResponse({"status": "ok", "tools": len(_tool_handlers)})
+
+        return Starlette(
+            lifespan=lifespan,
+            routes=[
+                Route("/health", healthz),
+                Mount("/mcp", app=handle_mcp),
+            ],
+        )
+
+    else:  # sse
+        sse = SseServerTransport("/mcp/messages")
+
+        async def handle_sse(request: Request) -> Response:
+            if settings.api_keys:
+                auth_header = request.headers.get("authorization", "")
+                raw_key = auth_header.removeprefix("Bearer ").strip()
+                validator = ApiKeyValidator([k.model_dump() for k in settings.api_keys])
+                if not validator.validate(raw_key):
+                    return Response("Unauthorized", status_code=401)
+            async with sse.connect_sse(request.scope, request.receive, request._send) as (r, w):
+                await server.run(r, w, server.create_initialization_options())
+            return Response()
+
+        async def healthz(request: Request) -> JSONResponse:
+            return JSONResponse({"status": "ok", "tools": len(_tool_handlers)})
+
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        return Starlette(routes=[
+            Route("/health", healthz),
+            Route("/mcp/sse", handle_sse),
+            Mount("/mcp/messages", app=sse.handle_post_message),
+        ])
+
+
 def main() -> None:
-    """Run the MCP server with stdio transport."""
+    """Run the MCP server — transport selected from config."""
     import asyncio
 
     global _settings, _session_manager
@@ -101,11 +175,21 @@ def main() -> None:
 
     server = Server("ga4gh-mcp-server")
     _register_tools(server, _settings)
-
     logger.info(f"Registered {len(_tool_handlers)} tools")
 
-    async def run_stdio():
-        async with stdio_server() as (read, write):
-            await server.run(read, write, server.create_initialization_options())
+    if _settings.server.transport == "stdio":
+        async def run_stdio():
+            async with stdio_server() as (read, write):
+                await server.run(read, write, server.create_initialization_options())
 
-    asyncio.run(run_stdio())
+        asyncio.run(run_stdio())
+
+    else:
+        import uvicorn
+        app = _build_starlette_app(server, _settings)
+        uvicorn.run(
+            app,
+            host=_settings.server.host,
+            port=_settings.server.port,
+            log_level=_settings.server.log_level.lower(),
+        )
